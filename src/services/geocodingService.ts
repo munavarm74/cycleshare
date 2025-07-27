@@ -52,6 +52,19 @@ export class GeocodingService {
   // Fallback method using a simple coordinate mapping for common London areas
   getFallbackCoordinates(stationName: string): { lat: number; lng: number; area: string } | null {
     const londonAreas = {
+      // TfL Cycle Hire Station Names (Common ones)
+      'river street': { lat: 51.5267, lng: -0.1067, area: 'Clerkenwell' },
+      'phillimore gardens': { lat: 51.5025, lng: -0.2017, area: 'Kensington' },
+      'christopher street': { lat: 51.5185, lng: -0.0816, area: 'Liverpool Street' },
+      'st chads street': { lat: 51.5320, lng: -0.1233, area: 'King\'s Cross' },
+      'sedding street': { lat: 51.4925, lng: -0.1567, area: 'Sloane Square' },
+      'broadcasting house': { lat: 51.5186, lng: -0.1437, area: 'Marylebone' },
+      'charlbert street': { lat: 51.5325, lng: -0.1687, area: 'St. John\'s Wood' },
+      'new globe walk': { lat: 51.5085, lng: -0.0972, area: 'Bankside' },
+      'park street': { lat: 51.5075, lng: -0.0952, area: 'Bankside' },
+      'brunswick square': { lat: 51.5235, lng: -0.1244, area: 'Bloomsbury' },
+      
+      // Major London Areas and Stations
       'clerkenwell': { lat: 51.5267, lng: -0.1067, area: 'Clerkenwell' },
       'kensington': { lat: 51.5025, lng: -0.2017, area: 'Kensington' },
       'liverpool street': { lat: 51.5185, lng: -0.0816, area: 'Liverpool Street' },
@@ -259,17 +272,127 @@ export class GeocodingService {
 
     const searchName = stationName.toLowerCase();
     
-    // Try exact matches first
+    // Try exact matches first (including partial word matches)
     for (const [area, coords] of Object.entries(londonAreas)) {
-      if (searchName.includes(area)) {
+      if (searchName.includes(area) || area.includes(searchName)) {
         return coords;
       }
     }
 
-    // Try partial matches
+    // Try word-by-word matching for better results
     for (const [area, coords] of Object.entries(londonAreas)) {
-      if (area.includes(searchName) || searchName.includes(area)) {
-        return coords;
+      const areaWords = area.split(' ');
+      const searchWords = searchName.split(' ');
+      
+      // Check if any search word matches any area word
+      for (const searchWord of searchWords) {
+        for (const areaWord of areaWords) {
+          if (searchWord.length > 2 && areaWord.length > 2 && 
+              (searchWord.includes(areaWord) || areaWord.includes(searchWord))) {
+            return coords;
+          }
+        }
+      }
+    }
+
+    // Try fuzzy matching for common misspellings or variations
+    const fuzzyMatches: { [key: string]: string } = {
+      'kings cross': 'kings cross',
+      'king cross': 'kings cross',
+      'st pancras': 'st pancras',
+      'saint pancras': 'st pancras',
+      'oxford circus': 'oxford circus',
+      'oxford st': 'oxford circus',
+      'piccadilly': 'piccadilly circus',
+      'leicester sq': 'leicester square',
+      'covent garden': 'covent garden',
+      'trafalgar sq': 'trafalgar square',
+      'westminster': 'westminster',
+      'waterloo': 'waterloo',
+      'london bridge': 'london bridge',
+      'tower bridge': 'tower hill',
+      'canary wharf': 'canary wharf',
+      'liverpool st': 'liverpool street',
+      'paddington': 'paddington',
+      'victoria': 'victoria',
+      'euston': 'euston',
+      'marylebone': 'marylebone',
+      'baker st': 'baker street',
+      'bond st': 'oxford circus',
+      'regent st': 'oxford circus',
+      'hyde park': 'hyde park corner',
+      'green park': 'green park',
+      'buckingham palace': 'victoria',
+      'big ben': 'westminster',
+      'houses of parliament': 'westminster',
+      'tate modern': 'bankside',
+      'st pauls': 'st paul\'s',
+      'millennium bridge': 'bankside',
+      'borough market': 'borough',
+      'southbank': 'waterloo',
+      'south bank': 'waterloo',
+      'embankment': 'embankment',
+      'temple': 'temple',
+      'holborn': 'holborn',
+      'bloomsbury': 'bloomsbury',
+      'fitzrovia': 'fitzrovia',
+      'soho': 'soho',
+      'chinatown': 'leicester square',
+      'mayfair': 'mayfair',
+      'belgravia': 'belgravia',
+      'chelsea': 'chelsea',
+      'knightsbridge': 'knightsbridge',
+      'south kensington': 'south kensington',
+      'notting hill': 'notting hill',
+      'bayswater': 'bayswater',
+      'camden': 'camden town',
+      'camden town': 'camden town',
+      'camden market': 'camden town',
+      'regent\'s park': 'regents park',
+      'regents park': 'regents park',
+      'primrose hill': 'camden town',
+      'angel': 'angel',
+      'islington': 'angel',
+      'shoreditch': 'shoreditch',
+      'hoxton': 'hoxton',
+      'hackney': 'hackney',
+      'bethnal green': 'bethnal green',
+      'whitechapel': 'whitechapel',
+      'aldgate': 'aldgate',
+      'spitalfields': 'liverpool street',
+      'brick lane': 'shoreditch',
+      'old street': 'old street',
+      'barbican': 'barbican',
+      'moorgate': 'moorgate',
+      'bank': 'bank',
+      'monument': 'monument',
+      'fenchurch street': 'fenchurch street',
+      'tower hill': 'tower hill',
+      'wapping': 'wapping',
+      'rotherhithe': 'rotherhithe',
+      'bermondsey': 'bermondsey',
+      'london bridge': 'london bridge',
+      'borough': 'borough',
+      'elephant and castle': 'elephant and castle',
+      'elephant & castle': 'elephant and castle',
+      'kennington': 'kennington',
+      'oval': 'oval',
+      'stockwell': 'stockwell',
+      'clapham': 'clapham common',
+      'battersea': 'battersea',
+      'nine elms': 'battersea',
+      'vauxhall': 'vauxhall',
+      'pimlico': 'pimlico',
+      'sloane square': 'sloane square',
+      'sloane sq': 'sloane square'
+    };
+    
+    for (const [fuzzy, canonical] of Object.entries(fuzzyMatches)) {
+      if (searchName.includes(fuzzy) || fuzzy.includes(searchName)) {
+        const coords = londonAreas[canonical];
+        if (coords) {
+          return coords;
+        }
       }
     }
 

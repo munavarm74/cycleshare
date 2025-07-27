@@ -123,6 +123,10 @@ export const CustomStationModal: React.FC<CustomStationModalProps> = ({
   const [isGeocoding, setIsGeocoding] = useState(false);
   const [geocodingResult, setGeocodingResult] = useState<{ lat: number; lng: number; area: string } | null>(null);
 
+  // State for multiple stations geocoding
+  const [multipleGeocodingResults, setMultipleGeocodingResults] = useState<{ [name: string]: { lat: number; lng: number; area: string } }>({});
+  const [isMultipleGeocoding, setIsMultipleGeocoding] = useState(false);
+
   const colorOptions = customStationsService.getColorOptions();
 
   // Filter predefined stations based on search
@@ -171,6 +175,49 @@ export const CustomStationModal: React.FC<CustomStationModalProps> = ({
     }
   }, [name, isMultipleMode, editStation]);
 
+  // Auto-geocode when multiple station names change
+  useEffect(() => {
+    if (isMultipleMode && multipleNames.trim() && !editStation) {
+      const timeoutId = setTimeout(async () => {
+        setIsMultipleGeocoding(true);
+        setMultipleGeocodingResults({});
+        
+        const names = multipleNames.split('\n')
+          .map(n => n.trim())
+          .filter(n => n.length > 0);
+        
+        const results: { [name: string]: { lat: number; lng: number; area: string } } = {};
+        
+        for (const stationName of names) {
+          // First try predefined stations
+          const predefined = PREDEFINED_STATIONS.find(s => 
+            s.name.toLowerCase().includes(stationName.toLowerCase()) ||
+            stationName.toLowerCase().includes(s.name.toLowerCase())
+          );
+          
+          if (predefined) {
+            results[stationName] = {
+              lat: predefined.lat,
+              lng: predefined.lng,
+              area: predefined.area
+            };
+          } else {
+            // Try fallback geocoding
+            const fallback = geocodingService.getFallbackCoordinates(stationName);
+            if (fallback) {
+              results[stationName] = fallback;
+            }
+          }
+        }
+        
+        setMultipleGeocodingResults(results);
+        setIsMultipleGeocoding(false);
+      }, 1500); // Debounce for 1.5 seconds for multiple stations
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [multipleNames, isMultipleMode, editStation]);
+
   useEffect(() => {
     if (editStation) {
       setName(editStation.name);
@@ -193,6 +240,7 @@ export const CustomStationModal: React.FC<CustomStationModalProps> = ({
       setUseDefaultCoordinates(true);
     }
     setErrors({});
+    setMultipleGeocodingResults({});
   }, [isOpen, editStation, defaultLat, defaultLng]);
 
   const validateForm = (): boolean => {
@@ -248,24 +296,29 @@ export const CustomStationModal: React.FC<CustomStationModalProps> = ({
   const handleSave = () => {
     if (!validateForm()) return;
 
-    // Use default coordinates if checkbox is checked
-    const finalLat = useDefaultCoordinates ? 51.5074 : lat;
-    const finalLng = useDefaultCoordinates ? -0.1278 : lng;
-
     if (isMultipleMode && onSaveMultiple) {
       const names = multipleNames.split('\n')
         .map(n => n.trim())
         .filter(n => n.length > 0);
       
-      const stations: CustomStation[] = names.map((stationName, index) => {
-        // Slightly offset each station by a small amount to avoid overlap
-        const offsetLat = finalLat + (index * 0.0001);
-        const offsetLng = finalLng + (index * 0.0001);
+      const stations: CustomStation[] = names.map((stationName) => {
+        let stationLat, stationLng;
+        
+        // Check if we have geocoded coordinates for this station
+        const geocodedResult = multipleGeocodingResults[stationName];
+        if (geocodedResult && !useDefaultCoordinates) {
+          stationLat = geocodedResult.lat;
+          stationLng = geocodedResult.lng;
+        } else {
+          // Use default coordinates if checkbox is checked or no geocoding result
+          stationLat = useDefaultCoordinates ? 51.5074 : lat;
+          stationLng = useDefaultCoordinates ? -0.1278 : lng;
+        }
         
         return customStationsService.addCustomStation({
           name: stationName,
-          lat: offsetLat,
-          lng: offsetLng,
+          lat: stationLat,
+          lng: stationLng,
           color,
           label: label.trim(),
           description: description.trim() || undefined,
@@ -275,6 +328,10 @@ export const CustomStationModal: React.FC<CustomStationModalProps> = ({
       onSaveMultiple(stations);
       onClose();
     } else {
+      // Use default coordinates if checkbox is checked
+      const finalLat = useDefaultCoordinates ? 51.5074 : lat;
+      const finalLng = useDefaultCoordinates ? -0.1278 : lng;
+      
       const stationData = {
         name: name.trim(),
         lat: finalLat,
@@ -381,8 +438,47 @@ export const CustomStationModal: React.FC<CustomStationModalProps> = ({
               />
               {errors.multipleNames && <p className="text-red-500 text-xs mt-1">{errors.multipleNames}</p>}
               <p className="text-xs text-gray-500 mt-1">
-                Each line will create a separate station with the same coordinates, color, and label
+                Each line will create a separate station. Coordinates will be auto-detected for each station name.
               </p>
+              
+              {/* Multiple Geocoding Status */}
+              {isMultipleGeocoding && (
+                <div className="flex items-center space-x-2 text-sm text-blue-600 mt-2">
+                  <div className="animate-spin rounded-full h-3 w-3 border-b border-blue-600"></div>
+                  <span>Finding coordinates for stations...</span>
+                </div>
+              )}
+              
+              {Object.keys(multipleGeocodingResults).length > 0 && !isMultipleGeocoding && (
+                <div className="mt-2 p-2 bg-green-50 rounded text-xs">
+                  <div className="font-medium text-green-800 mb-1">Found coordinates for:</div>
+                  {Object.entries(multipleGeocodingResults).map(([name, result]) => (
+                    <div key={name} className="text-green-700">
+                      • {name} → {result.area} ({result.lat.toFixed(4)}, {result.lng.toFixed(4)})
+                    </div>
+                  ))}
+                  
+                  {/* Show stations that will use default coordinates */}
+                  {(() => {
+                    const allNames = multipleNames.split('\n').map(n => n.trim()).filter(n => n.length > 0);
+                    const notFoundNames = allNames.filter(name => !multipleGeocodingResults[name]);
+                    
+                    if (notFoundNames.length > 0) {
+                      return (
+                        <div className="mt-2 pt-2 border-t border-green-200">
+                          <div className="font-medium text-amber-700 mb-1">Will use default coordinates:</div>
+                          {notFoundNames.map(name => (
+                            <div key={name} className="text-amber-600">
+                              • {name} → Central London (51.5074, -0.1278)
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
             </div>
           ) : (
             <div>
